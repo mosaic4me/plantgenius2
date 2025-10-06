@@ -1,277 +1,367 @@
+/**
+ * Authentication Context
+ *
+ * Provides authentication state and methods using Google, Apple, and Email/Password
+ * with MongoDB backend integration.
+ */
+
 import createContextHook from '@nkzw/create-context-hook';
-import { Session, User, AuthError } from '@supabase/supabase-js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { authService, AuthUser, AuthSession, AuthError } from '@/services/auth';
+import { mongoClient } from '@/lib/mongodb';
 import { logger } from '@/utils/logger';
-import { AuthenticationError } from '@/types/errors';
+import { setSentryUser } from '@/utils/sentry';
 
 interface Profile {
-    id: string;
-    email: string;
-    full_name: string | null;
-    avatar_url: string | null;
+  id: string;
+  email: string;
+  fullName: string | null;
+  avatarUrl: string | null;
+  authProvider: 'email' | 'google' | 'apple';
 }
 
 interface Subscription {
-    id: string;
-    plan_type: 'basic' | 'premium';
-    status: 'active' | 'cancelled' | 'expired';
-    start_date: string;
-    end_date: string;
+  id: string;
+  planType: 'basic' | 'premium';
+  status: 'active' | 'cancelled' | 'expired';
+  startDate: string;
+  endDate: string;
 }
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
-    const [session, setSession] = useState<Session | null>(null);
-    const [user, setUser] = useState<User | null>(null);
-    const [profile, setProfile] = useState<Profile | null>(null);
-    const [subscription, setSubscription] = useState<Subscription | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [dailyScansRemaining, setDailyScansRemaining] = useState(5);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dailyScansRemaining, setDailyScansRemaining] = useState(5);
 
-    const loadProfile = useCallback(async (userId: string) => {
-        try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', userId)
-                .single();
-
-            if (error) throw error;
-            setProfile(data);
-        } catch (error) {
-            const err = error instanceof Error ? error : new Error('Unknown error');
-            logger.error('Error loading profile', err, { userId });
-        }
-    }, []);
-
-    const loadSubscription = useCallback(async (userId: string) => {
-        try {
-            const { data, error } = await supabase
-                .from('subscriptions')
-                .select('*')
-                .eq('user_id', userId)
-                .eq('status', 'active')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .single();
-
-            if (error && error.code !== 'PGRST116') throw error;
-            setSubscription(data);
-        } catch (error) {
-            const err = error instanceof Error ? error : new Error('Unknown error');
-            logger.error('Error loading subscription', err, { userId });
-        }
-    }, []);
-
-    const loadDailyScans = useCallback(async (userId: string) => {
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const { data, error } = await supabase
-                .from('daily_scans')
-                .select('*')
-                .eq('user_id', userId)
-                .eq('scan_date', today)
-                .single();
-
-            if (error && error.code !== 'PGRST116') throw error;
-
-            const scanCount = data?.scan_count || 0;
-            setDailyScansRemaining(Math.max(0, 5 - scanCount));
-        } catch (error) {
-            const err = error instanceof Error ? error : new Error('Unknown error');
-            logger.error('Error loading daily scans', err, { userId });
-        }
-    }, []);
-
-    useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                loadProfile(session.user.id);
-                loadSubscription(session.user.id);
-                loadDailyScans(session.user.id);
-            }
-            setLoading(false);
+  /**
+   * Load user profile from MongoDB
+   */
+  const loadProfile = useCallback(async (userId: string) => {
+    try {
+      const data = await mongoClient.getUserProfile(userId);
+      if (data) {
+        setProfile({
+          id: data._id,
+          email: data.email,
+          fullName: data.fullName,
+          avatarUrl: data.avatarUrl,
+          authProvider: data.authProvider,
         });
 
-        const {
-            data: { subscription: authListener },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                loadProfile(session.user.id);
-                loadSubscription(session.user.id);
-                loadDailyScans(session.user.id);
-            } else {
-                setProfile(null);
-                setSubscription(null);
-                setDailyScansRemaining(5);
-            }
+        // Set Sentry user for error tracking
+        setSentryUser({ id: data._id, email: data.email });
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error loading profile', err, { userId });
+    }
+  }, []);
+
+  /**
+   * Load user subscription from MongoDB
+   */
+  const loadSubscription = useCallback(async (userId: string) => {
+    try {
+      const data = await mongoClient.getActiveSubscription(userId);
+      if (data) {
+        setSubscription({
+          id: data._id,
+          planType: data.planType,
+          status: data.status,
+          startDate: data.startDate.toISOString(),
+          endDate: data.endDate.toISOString(),
+        });
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error loading subscription', err, { userId });
+    }
+  }, []);
+
+  /**
+   * Load daily scans count from MongoDB
+   */
+  const loadDailyScans = useCallback(async (userId: string) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const data = await mongoClient.getDailyScan(userId, today);
+
+      const scanCount = data?.scanCount || 0;
+      setDailyScansRemaining(Math.max(0, 5 - scanCount));
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error loading daily scans', err, { userId });
+    }
+  }, []);
+
+  /**
+   * Initialize authentication on mount
+   */
+  useEffect(() => {
+    authService.initialize().then((sessionData) => {
+      setSession(sessionData);
+      setUser(sessionData?.user ?? null);
+
+      if (sessionData?.user) {
+        loadProfile(sessionData.user.id);
+        loadSubscription(sessionData.user.id);
+        loadDailyScans(sessionData.user.id);
+      }
+
+      setLoading(false);
+    });
+  }, [loadProfile, loadSubscription, loadDailyScans]);
+
+  /**
+   * Sign up with email and password
+   */
+  const signUp = useCallback(
+    async (email: string, password: string, fullName: string) => {
+      try {
+        const { session: newSession, error } = await authService.signUpWithEmail(
+          email,
+          password,
+          fullName
+        );
+
+        if (error) {
+          return { data: null, error };
+        }
+
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+
+        if (newSession?.user) {
+          await loadProfile(newSession.user.id);
+          await loadSubscription(newSession.user.id);
+          await loadDailyScans(newSession.user.id);
+        }
+
+        return { data: newSession, error: null };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error('Unknown error');
+        logger.error('Error signing up', err, { email });
+        return { data: null, error: { message: err.message, code: 'SIGN_UP_FAILED' } };
+      }
+    },
+    [loadProfile, loadSubscription, loadDailyScans]
+  );
+
+  /**
+   * Sign in with email and password
+   */
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      try {
+        const { session: newSession, error } = await authService.signInWithEmail(email, password);
+
+        if (error) {
+          return { data: null, error };
+        }
+
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+
+        if (newSession?.user) {
+          await loadProfile(newSession.user.id);
+          await loadSubscription(newSession.user.id);
+          await loadDailyScans(newSession.user.id);
+        }
+
+        return { data: newSession, error: null };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error('Unknown error');
+        logger.error('Error signing in', err, { email });
+        return { data: null, error: { message: err.message, code: 'SIGN_IN_FAILED' } };
+      }
+    },
+    [loadProfile, loadSubscription, loadDailyScans]
+  );
+
+  /**
+   * Sign in with Google
+   */
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      const { session: newSession, error } = await authService.signInWithGoogle();
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      setSession(newSession);
+      setUser(newSession?.user ?? null);
+
+      if (newSession?.user) {
+        await loadProfile(newSession.user.id);
+        await loadSubscription(newSession.user.id);
+        await loadDailyScans(newSession.user.id);
+      }
+
+      return { data: newSession, error: null };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error signing in with Google', err);
+      return { data: null, error: { message: err.message, code: 'GOOGLE_SIGN_IN_FAILED' } };
+    }
+  }, [loadProfile, loadSubscription, loadDailyScans]);
+
+  /**
+   * Sign in with Apple (iOS only)
+   */
+  const signInWithApple = useCallback(async () => {
+    try {
+      const { session: newSession, error } = await authService.signInWithApple();
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      setSession(newSession);
+      setUser(newSession?.user ?? null);
+
+      if (newSession?.user) {
+        await loadProfile(newSession.user.id);
+        await loadSubscription(newSession.user.id);
+        await loadDailyScans(newSession.user.id);
+      }
+
+      return { data: newSession, error: null };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error signing in with Apple', err);
+      return { data: null, error: { message: err.message, code: 'APPLE_SIGN_IN_FAILED' } };
+    }
+  }, [loadProfile, loadSubscription, loadDailyScans]);
+
+  /**
+   * Sign out
+   */
+  const signOut = useCallback(async () => {
+    try {
+      await authService.signOut();
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setSubscription(null);
+      setDailyScansRemaining(5);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error signing out', err);
+    }
+  }, []);
+
+  /**
+   * Update user profile
+   */
+  const updateProfile = useCallback(
+    async (updates: Partial<Profile>) => {
+      if (!user) return { error: 'No user logged in' };
+
+      try {
+        await mongoClient.updateUserProfile(user.id, {
+          fullName: updates.fullName,
+          avatarUrl: updates.avatarUrl,
+          updatedAt: new Date(),
         });
 
-        return () => {
-            authListener.unsubscribe();
-        };
-    }, [loadProfile, loadSubscription, loadDailyScans]);
+        await loadProfile(user.id);
+        return { error: null };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error('Unknown error');
+        logger.error('Error updating profile', err, { userId: user?.id });
+        return { error: err.message };
+      }
+    },
+    [user, loadProfile]
+  );
 
-    const signUp = useCallback(async (email: string, password: string, fullName: string) => {
-        try {
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: {
-                        full_name: fullName,
-                    },
-                },
-            });
+  /**
+   * Reset password
+   */
+  const resetPassword = useCallback(async (email: string) => {
+    try {
+      const { error } = await authService.resetPassword(email);
+      if (error) {
+        return { error };
+      }
+      return { error: null };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error resetting password', err, { email });
+      return { error: { message: err.message, code: 'PASSWORD_RESET_FAILED' } };
+    }
+  }, []);
 
-            if (error) throw error;
+  /**
+   * Increment daily scan count
+   */
+  const incrementDailyScan = useCallback(async () => {
+    if (!user) return;
 
-            if (data.user) {
-                await supabase.from('profiles').insert({
-                    id: data.user.id,
-                    email: data.user.email!,
-                    full_name: fullName,
-                });
-            }
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      await mongoClient.incrementDailyScan(user.id, today);
+      await loadDailyScans(user.id);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Error incrementing daily scan', err, { userId: user?.id });
+    }
+  }, [user, loadDailyScans]);
 
-            return { data, error: null };
-        } catch (error) {
-            const authError = error as AuthError;
-            logger.error('Error signing up', authError, { email });
-            return { data: null, error: authError };
-        }
-    }, []);
+  /**
+   * Check if user has active subscription
+   */
+  const hasActiveSubscription = useCallback(() => {
+    return subscription?.status === 'active';
+  }, [subscription]);
 
-    const signIn = useCallback(async (email: string, password: string) => {
-        try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
+  /**
+   * Check if user can perform a scan
+   */
+  const canScan = useCallback(() => {
+    return hasActiveSubscription() || dailyScansRemaining > 0;
+  }, [hasActiveSubscription, dailyScansRemaining]);
 
-            if (error) throw error;
-            return { data, error: null };
-        } catch (error) {
-            const authError = error as AuthError;
-            logger.error('Error signing in', authError, { email });
-            return { data: null, error: authError };
-        }
-    }, []);
-
-    const signOut = useCallback(async () => {
-        try {
-            const { error } = await supabase.auth.signOut();
-            if (error) throw error;
-        } catch (error) {
-            const err = error instanceof Error ? error : new Error('Unknown error');
-            logger.error('Error signing out', err);
-        }
-    }, []);
-
-    const updateProfile = useCallback(async (updates: Partial<Profile>) => {
-        if (!user) return { error: 'No user logged in' };
-
-        try {
-            const { error } = await supabase
-                .from('profiles')
-                .update(updates)
-                .eq('id', user.id);
-
-            if (error) throw error;
-            await loadProfile(user.id);
-            return { error: null };
-        } catch (error) {
-            const err = error instanceof Error ? error : new Error('Unknown error');
-            logger.error('Error updating profile', err, { userId: user?.id });
-            return { error: err };
-        }
-    }, [user, loadProfile]);
-
-    const resetPassword = useCallback(async (email: string) => {
-        try {
-            const { error } = await supabase.auth.resetPasswordForEmail(email);
-            if (error) throw error;
-            return { error: null };
-        } catch (error) {
-            const authError = error as AuthError;
-            logger.error('Error resetting password', authError, { email });
-            return { error: authError };
-        }
-    }, []);
-
-    const incrementDailyScan = useCallback(async () => {
-        if (!user) return;
-
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const { data: existing } = await supabase
-                .from('daily_scans')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('scan_date', today)
-                .single();
-
-            if (existing) {
-                await supabase
-                    .from('daily_scans')
-                    .update({ scan_count: existing.scan_count + 1 })
-                    .eq('id', existing.id);
-            } else {
-                await supabase.from('daily_scans').insert({
-                    user_id: user.id,
-                    scan_date: today,
-                    scan_count: 1,
-                });
-            }
-
-            await loadDailyScans(user.id);
-        } catch (error) {
-            const err = error instanceof Error ? error : new Error('Unknown error');
-            logger.error('Error incrementing daily scan', err, { userId: user?.id });
-        }
-    }, [user, loadDailyScans]);
-
-    const hasActiveSubscription = useCallback(() => {
-        return subscription?.status === 'active';
-    }, [subscription]);
-
-    const canScan = useCallback(() => {
-        return hasActiveSubscription() || dailyScansRemaining > 0;
-    }, [hasActiveSubscription, dailyScansRemaining]);
-
-    return useMemo(() => ({
-        session,
-        user,
-        profile,
-        subscription,
-        loading,
-        dailyScansRemaining,
-        signUp,
-        signIn,
-        signOut,
-        updateProfile,
-        resetPassword,
-        incrementDailyScan,
-        hasActiveSubscription,
-        canScan,
-    }), [
-        session,
-        user,
-        profile,
-        subscription,
-        loading,
-        dailyScansRemaining,
-        signUp,
-        signIn,
-        signOut,
-        updateProfile,
-        resetPassword,
-        incrementDailyScan,
-        hasActiveSubscription,
-        canScan,
-    ]);
+  return useMemo(
+    () => ({
+      session,
+      user,
+      profile,
+      subscription,
+      loading,
+      dailyScansRemaining,
+      signUp,
+      signIn,
+      signInWithGoogle,
+      signInWithApple,
+      signOut,
+      updateProfile,
+      resetPassword,
+      incrementDailyScan,
+      hasActiveSubscription,
+      canScan,
+    }),
+    [
+      session,
+      user,
+      profile,
+      subscription,
+      loading,
+      dailyScansRemaining,
+      signUp,
+      signIn,
+      signInWithGoogle,
+      signInWithApple,
+      signOut,
+      updateProfile,
+      resetPassword,
+      incrementDailyScan,
+      hasActiveSubscription,
+      canScan,
+    ]
+  );
 });

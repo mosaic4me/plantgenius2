@@ -42,19 +42,37 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     typedRoutes: true,
   },
   extra: {
-    // Environment variables exposed to app
-    plantIdApiKey: process.env.PLANT_ID_API_KEY,
-    plantIdApiUrl: process.env.PLANT_ID_API_URL || 'https://plant.id/api/v3/identification',
-    supabaseUrl: process.env.SUPABASE_URL,
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+    // Pl@ntNet API
+    plantnetApiKey: process.env.PLANTNET_API_KEY || '2b10ljY2KkrPghrnquDKbQ8V2',
+    plantnetApiUrl: process.env.PLANTNET_API_URL || 'https://my-api.plantnet.org/v2/identify/all',
+
+    // MongoDB Backend API
+    mongodbApiUrl: process.env.MONGODB_API_URL || 'http://localhost:3000/api',
+
+    // Google Sign In
+    googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID,
+    googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID,
+    googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID,
+
+    // Apple Sign In (iOS)
+    appleSignInEnabled: process.env.APPLE_SIGN_IN_ENABLED === 'true',
+
+    // Email Service
     smtp2goApiKey: process.env.SMTP2GO_API_KEY,
     smtp2goApiUrl: process.env.SMTP2GO_API_URL || 'https://api.smtp2go.com/v3/email/send',
     emailFrom: process.env.EMAIL_FROM,
     emailTo: process.env.EMAIL_TO,
+
+    // Payment
     paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY,
+    paystackSecretKey: process.env.PAYSTACK_SECRET_KEY,
+
+    // Error Tracking
     sentryDsn: process.env.SENTRY_DSN,
     sentryEnabled: process.env.SENTRY_ENABLED === 'true' || process.env.APP_ENV === 'production',
+
+    // App Configuration
     appEnv: process.env.APP_ENV || 'development',
-    debugMode: process.env.DEBUG_MODE === 'true',
+    debugMode: process.env.DEBUG_MODE !== 'false',
   },
 });
