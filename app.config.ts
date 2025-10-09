@@ -7,7 +7,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'plantgenius',
   version: '1.0.0',
   orientation: 'portrait',
-  icon: './assets/images/icon.png',
   scheme: 'plantgenius',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
@@ -16,34 +15,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: 'com.plantsgenius.app',
   },
   android: {
-    adaptiveIcon: {
-      foregroundImage: './assets/images/adaptive-icon.png',
-      backgroundColor: '#ffffff',
-    },
     package: 'com.plantsgenius.app',
   },
   web: {
     bundler: 'metro',
     output: 'static',
-    favicon: './assets/images/favicon.png',
   },
   plugins: [
     'expo-router',
-    [
-      'expo-splash-screen',
-      {
-        imageSource: './assets/images/splash-icon.png',
-        resizeMode: 'contain',
-        backgroundColor: '#ffffff',
-      },
-    ],
   ],
   experiments: {
     typedRoutes: true,
   },
   extra: {
+    // EAS Project ID
+    eas: {
+      projectId: "33c35995-efbc-49f6-ae30-63a387d9a06d"
+    },
+
     // Pl@ntNet API
-    plantnetApiKey: process.env.PLANTNET_API_KEY || '2b10ljY2KkrPghrnquDKbQ8V2',
+    plantnetApiKey: process.env.PLANTNET_API_KEY || '',
     plantnetApiUrl: process.env.PLANTNET_API_URL || 'https://my-api.plantnet.org/v2/identify/all',
 
     // MongoDB Backend API
