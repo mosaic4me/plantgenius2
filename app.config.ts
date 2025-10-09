@@ -9,7 +9,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   scheme: 'plantgenius',
   userInterfaceStyle: 'automatic',
-  newArchEnabled: true,
+  newArchEnabled: false,
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.plantsgenius.app',
