@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import NeuralNetworkAnimation from '@/components/NeuralNetworkAnimation';
 import Colors from '@/constants/colors';
-import { identifyPlant } from '@/utils/plantIdApi';
+import { identifyPlant } from '@/utils/plantnetApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { logger } from '@/utils/logger';
 import { isAppError } from '@/types/errors';
