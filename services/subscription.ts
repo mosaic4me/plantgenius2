@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { mongoClient } from '@/lib/mongodb';
 import { logger } from '@/utils/logger';
 
 export interface SubscriptionData {
@@ -25,18 +25,14 @@ export class SubscriptionService {
         endDate.setFullYear(endDate.getFullYear() + 1);
       }
 
-      const { error } = await supabase.from('subscriptions').insert({
-        user_id: data.userId,
-        plan_type: data.planType,
+      await mongoClient.createSubscription({
+        userId: data.userId,
+        planType: data.planType,
         status: 'active',
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString(),
-        payment_reference: data.paymentReference,
+        startDate,
+        endDate,
+        paymentReference: data.paymentReference,
       });
-
-      if (error) {
-        throw error;
-      }
 
       logger.info('Subscription created successfully', {
         userId: data.userId,
@@ -58,16 +54,7 @@ export class SubscriptionService {
    */
   async cancelSubscription(userId: string): Promise<void> {
     try {
-      const { error } = await supabase
-        .from('subscriptions')
-        .update({ status: 'cancelled' })
-        .eq('user_id', userId)
-        .eq('status', 'active');
-
-      if (error) {
-        throw error;
-      }
-
+      await mongoClient.cancelSubscription(userId);
       logger.info('Subscription cancelled', { userId });
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Unknown error');
@@ -81,18 +68,8 @@ export class SubscriptionService {
    */
   async checkExpiredSubscriptions(): Promise<void> {
     try {
-      const now = new Date().toISOString();
-
-      const { error } = await supabase
-        .from('subscriptions')
-        .update({ status: 'expired' })
-        .eq('status', 'active')
-        .lt('end_date', now);
-
-      if (error) {
-        throw error;
-      }
-
+      const now = new Date();
+      await mongoClient.expireOldSubscriptions(now);
       logger.info('Expired subscriptions updated');
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Unknown error');

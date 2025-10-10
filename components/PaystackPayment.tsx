@@ -4,7 +4,7 @@ import Toast from 'react-native-toast-message';
 import { X } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { mongoClient } from '@/lib/mongodb';
 import { logger } from '@/utils/logger';
 import { PaymentError } from '@/types/errors';
 
@@ -46,13 +46,13 @@ export default function PaystackPayment({ visible, onClose, planType, billingCyc
                 endDate.setFullYear(endDate.getFullYear() + 1);
             }
 
-            await supabase.from('subscriptions').insert({
-                user_id: user.id,
-                plan_type: planType,
+            await mongoClient.createSubscription({
+                userId: user.id,
+                planType,
                 status: 'active',
-                start_date: startDate.toISOString(),
-                end_date: endDate.toISOString(),
-                payment_reference: `PAY_${Date.now()}`,
+                startDate,
+                endDate,
+                paymentReference: `PAY_${Date.now()}`,
             });
 
             Toast.show({

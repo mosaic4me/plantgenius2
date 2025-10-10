@@ -1,20 +1,30 @@
 import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 
-// Mock Supabase
-jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    auth: {
-      getSession: jest.fn(),
-      onAuthStateChange: jest.fn(),
-      signUp: jest.fn(),
-      signInWithPassword: jest.fn(),
-      signOut: jest.fn(),
-      resetPasswordForEmail: jest.fn(),
-    },
-    from: jest.fn(),
+// Mock MongoDB Client
+jest.mock('@/lib/mongodb', () => ({
+  mongoClient: {
+    getUserProfile: jest.fn(),
+    getActiveSubscription: jest.fn(),
+    getDailyScan: jest.fn(),
+    updateUserProfile: jest.fn(),
+    incrementDailyScan: jest.fn(),
+    createSubscription: jest.fn(),
+    cancelSubscription: jest.fn(),
+  },
+}));
+
+// Mock auth service
+jest.mock('@/services/auth', () => ({
+  authService: {
+    initialize: jest.fn(),
+    signUpWithEmail: jest.fn(),
+    signInWithEmail: jest.fn(),
+    signInWithGoogle: jest.fn(),
+    signInWithApple: jest.fn(),
+    signOut: jest.fn(),
+    resetPassword: jest.fn(),
   },
 }));
 
