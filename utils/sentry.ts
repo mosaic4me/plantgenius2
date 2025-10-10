@@ -1,6 +1,16 @@
-import * as Sentry from '@sentry/react-native';
 import { config } from './config';
 import { logger } from './logger';
+
+// Conditionally import Sentry only if enabled
+let Sentry: any = null;
+
+if (config.sentryEnabled && config.sentryDsn) {
+  try {
+    Sentry = require('@sentry/react-native');
+  } catch (error) {
+    logger.warn('Sentry package not installed, error tracking disabled');
+  }
+}
 
 /**
  * Initialize Sentry error tracking for production monitoring
@@ -16,8 +26,8 @@ import { logger } from './logger';
  */
 export function initializeSentry(): void {
   // Only initialize if Sentry is enabled and DSN is provided
-  if (!config.sentryDsn || !config.sentryEnabled) {
-    logger.info('Sentry disabled or DSN not configured');
+  if (!config.sentryDsn || !config.sentryEnabled || !Sentry) {
+    logger.info('Sentry disabled or not configured');
     return;
   }
 
@@ -109,7 +119,7 @@ export function setSentryUser(user: {
   email?: string;
   username?: string;
 }): void {
-  if (!config.sentryEnabled) return;
+  if (!config.sentryEnabled || !Sentry) return;
 
   Sentry.setUser({
     id: user.id,
@@ -124,7 +134,7 @@ export function setSentryUser(user: {
  * Clear user context (call on sign out)
  */
 export function clearSentryUser(): void {
-  if (!config.sentryEnabled) return;
+  if (!config.sentryEnabled || !Sentry) return;
 
   Sentry.setUser(null);
   logger.debug('Sentry user context cleared');
@@ -139,7 +149,7 @@ export function addSentryBreadcrumb(
   level: 'debug' | 'info' | 'warning' | 'error' = 'info',
   data?: Record<string, unknown>
 ): void {
-  if (!config.sentryEnabled) return;
+  if (!config.sentryEnabled || !Sentry) return;
 
   Sentry.addBreadcrumb({
     category,
@@ -157,7 +167,7 @@ export function captureSentryException(
   error: Error,
   context?: Record<string, unknown>
 ): void {
-  if (!config.sentryEnabled) return;
+  if (!config.sentryEnabled || !Sentry) return;
 
   Sentry.captureException(error, {
     contexts: {
@@ -176,7 +186,7 @@ export function captureSentryMessage(
   level: 'debug' | 'info' | 'warning' | 'error' | 'fatal' = 'info',
   context?: Record<string, unknown>
 ): void {
-  if (!config.sentryEnabled) return;
+  if (!config.sentryEnabled || !Sentry) return;
 
   Sentry.captureMessage(message, {
     level,
@@ -189,8 +199,8 @@ export function captureSentryMessage(
 /**
  * Start a performance transaction
  */
-export function startSentryTransaction(name: string, op: string): Sentry.Transaction | null {
-  if (!config.sentryEnabled) return null;
+export function startSentryTransaction(name: string, op: string): any | null {
+  if (!config.sentryEnabled || !Sentry) return null;
 
   return Sentry.startTransaction({
     name,
@@ -198,5 +208,5 @@ export function startSentryTransaction(name: string, op: string): Sentry.Transac
   });
 }
 
-// Re-export Sentry for direct use
+// Re-export Sentry for direct use (may be null if not installed)
 export { Sentry };
