@@ -1,6 +1,5 @@
-import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { PlantIdentification, GardenPlant } from '@/types/plant';
 import { logger } from '@/utils/logger';
 import { storageManager } from '@/utils/storage';
@@ -14,7 +13,22 @@ interface AppStats {
     plantsInGarden: number;
 }
 
-export const [AppProvider, useApp] = createContextHook(() => {
+interface AppContextValue {
+    history: PlantIdentification[];
+    garden: GardenPlant[];
+    stats: AppStats;
+    isLoading: boolean;
+    addToHistory: (plant: PlantIdentification) => Promise<void>;
+    removeFromHistory: (id: string) => Promise<void>;
+    toggleSaved: (id: string) => Promise<void>;
+    addToGarden: (plant: PlantIdentification) => Promise<void>;
+    removeFromGarden: (id: string) => Promise<void>;
+    updatePlantWatering: (id: string) => Promise<void>;
+}
+
+const AppContext = createContext<AppContextValue | undefined>(undefined);
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
     const [history, setHistory] = useState<PlantIdentification[]>([]);
     const [garden, setGarden] = useState<GardenPlant[]>([]);
     const [stats, setStats] = useState<AppStats>({ totalScans: 0, plantsInGarden: 0 });
@@ -47,7 +61,6 @@ export const [AppProvider, useApp] = createContextHook(() => {
         try {
             setHistory((prevHistory) => {
                 const newHistory = [plant, ...prevHistory].slice(0, 50);
-                // Use debounced storage to reduce I/O
                 storageManager.debouncedSetItem(HISTORY_KEY, JSON.stringify(newHistory));
                 return newHistory;
             });
@@ -158,7 +171,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
         }
     }, []);
 
-    return useMemo(() => ({
+    const value = useMemo(() => ({
         history,
         garden,
         stats,
@@ -170,4 +183,14 @@ export const [AppProvider, useApp] = createContextHook(() => {
         removeFromGarden,
         updatePlantWatering,
     }), [history, garden, stats, isLoading, addToHistory, removeFromHistory, toggleSaved, addToGarden, removeFromGarden, updatePlantWatering]);
-});
+
+    return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+export function useApp() {
+    const context = useContext(AppContext);
+    if (context === undefined) {
+        throw new Error('useApp must be used within an AppProvider');
+    }
+    return context;
+}
