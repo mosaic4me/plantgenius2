@@ -5,8 +5,7 @@
  * with MongoDB backend integration.
  */
 
-import createContextHook from '@nkzw/create-context-hook';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { authService, AuthUser, AuthSession, AuthError } from '@/services/auth';
 import { mongoClient } from '@/lib/mongodb';
 import { logger } from '@/utils/logger';
@@ -28,7 +27,28 @@ interface Subscription {
   endDate: string;
 }
 
-export const [AuthProvider, useAuth] = createContextHook(() => {
+interface AuthContextValue {
+  session: AuthSession | null;
+  user: AuthUser | null;
+  profile: Profile | null;
+  subscription: Subscription | null;
+  loading: boolean;
+  dailyScansRemaining: number;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ data: AuthSession | null; error: AuthError | null }>;
+  signIn: (email: string, password: string) => Promise<{ data: AuthSession | null; error: AuthError | null }>;
+  signInWithGoogle: () => Promise<{ data: AuthSession | null; error: AuthError | null }>;
+  signInWithApple: () => Promise<{ data: AuthSession | null; error: AuthError | null }>;
+  signOut: () => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<{ error: string | null }>;
+  resetPassword: (email: string) => Promise<{ error: AuthError | null }>;
+  incrementDailyScan: () => Promise<void>;
+  hasActiveSubscription: () => boolean;
+  canScan: () => boolean;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -326,7 +346,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     return hasActiveSubscription() || dailyScansRemaining > 0;
   }, [hasActiveSubscription, dailyScansRemaining]);
 
-  return useMemo(
+  const value = useMemo(
     () => ({
       session,
       user,
@@ -364,4 +384,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       canScan,
     ]
   );
-});
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
