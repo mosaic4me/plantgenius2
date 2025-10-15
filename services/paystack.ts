@@ -83,32 +83,37 @@ class PaystackService {
   }
 
   /**
-   * Verifies a payment transaction
-   * In production, this should be done server-side for security
+   * Verifies a payment transaction via backend API
+   * SECURITY FIX: Now uses server-side verification instead of fake client-side check
    */
   async verifyPayment(reference: string): Promise<PaymentVerificationResult> {
     try {
-      logger.info('Verifying payment', { reference });
+      logger.info('Verifying payment via backend', { reference });
 
-      // NOTE: In production, payment verification MUST be done server-side
-      // This client-side verification is only for demonstration
-      // A malicious user could bypass client-side checks
+      // Call backend API for secure server-side verification
+      const response = await fetch(`${config.mongodbApiUrl}/payments/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reference }),
+      });
 
-      // For now, simulate successful verification
-      // In production, you would:
-      // 1. Call your backend API
-      // 2. Backend verifies with Paystack using secret key
-      // 3. Backend updates subscription in database
-      // 4. Backend returns verification result
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Verification failed' }));
+        throw new Error(error.message || 'Payment verification failed');
+      }
 
-      logger.warn('Using client-side payment verification - NOT SECURE FOR PRODUCTION');
+      const result = await response.json();
+
+      logger.info('Payment verified successfully', { reference, success: result.success });
 
       return {
-        success: true,
-        reference,
-        amount: 0,
-        paidAt: new Date().toISOString(),
-        channel: 'card',
+        success: result.success,
+        reference: result.reference,
+        amount: result.amount,
+        paidAt: result.paidAt,
+        channel: result.channel,
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Unknown error');

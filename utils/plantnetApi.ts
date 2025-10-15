@@ -12,9 +12,11 @@ import { logger } from './logger';
 import { NetworkError, PlantIdError } from '@/types/errors';
 import { validateImageUri } from './validation';
 import { compressImage } from './imageProcessor';
+import { config } from './config';
 
-const API_KEY = '2b10ljY2KkrPghrnquDKbQ8V2';
-const API_URL = 'https://my-api.plantnet.org/v2/identify/all';
+// SECURITY: Removed hardcoded API key - now using config
+const API_KEY = config.plantnetApiKey;
+const API_URL = config.plantnetApiUrl;
 
 /**
  * Pl@ntNet API Response Types

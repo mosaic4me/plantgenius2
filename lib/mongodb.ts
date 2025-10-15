@@ -6,10 +6,11 @@
  */
 
 import { logger } from '@/utils/logger';
+import { config } from '@/utils/config';
 
-// MongoDB connection string from config
-const MONGODB_URI = 'mongodb+srv://programmerscourt_db_user:biaqPmArLif37ASc@cluster101.tkexfbo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster101';
-const DB_NAME = 'plantgenius';
+// MongoDB connection - REMOVED HARDCODED CREDENTIALS
+// Connection is now handled by backend API
+// This client communicates with backend REST API, not directly with MongoDB
 
 /**
  * User Profile Document
@@ -86,15 +87,32 @@ class MongoDBClient {
   private apiUrl: string;
 
   constructor() {
-    // In production, this would be your backend API URL
-    // For now, we'll use a placeholder that should be configured
-    this.apiUrl = process.env.MONGODB_API_URL || 'http://localhost:3000/api';
+    // Backend API URL from configuration
+    // SECURITY: Never hardcode API URLs or credentials
+    this.apiUrl = config.mongodbApiUrl;
+
+    if (!this.apiUrl || this.apiUrl === 'http://localhost:3000/api' || this.apiUrl === '') {
+      const errorMsg = 'MongoDB API URL not configured. Please check your environment configuration.';
+      logger.error(errorMsg, new Error('MONGODB_API_URL_NOT_CONFIGURED'));
+      // Don't throw here - let individual methods handle it gracefully
+      this.apiUrl = ''; // Set to empty to trigger errors on API calls
+    }
   }
 
   /**
    * Generic fetch wrapper with error handling
+   * PRODUCTION FIX: Added check for missing API URL
    */
   private async fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    // PRODUCTION FIX: Fail fast if API URL not configured
+    if (!this.apiUrl || this.apiUrl === '') {
+      const error = new Error(
+        'Backend API not configured. Please check your internet connection and app configuration.'
+      );
+      logger.error('MongoDB API URL not configured', error, { endpoint });
+      throw error;
+    }
+
     try {
       const response = await fetch(`${this.apiUrl}${endpoint}`, {
         ...options,
@@ -112,7 +130,7 @@ class MongoDBClient {
       return await response.json();
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Unknown error');
-      logger.error('MongoDB API error', err, { endpoint });
+      logger.error('MongoDB API error', err, { endpoint, apiUrl: this.apiUrl });
       throw err;
     }
   }

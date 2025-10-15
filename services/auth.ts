@@ -6,11 +6,16 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Google from 'expo-auth-session/providers/google';
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Platform } from 'react-native';
 import { logger } from '@/utils/logger';
 import { mongoClient, UserProfile } from '@/lib/mongodb';
+import { config } from '@/utils/config';
+
+// Warm up web browser for auth
+WebBrowser.maybeCompleteAuthSession();
 
 const AUTH_TOKEN_KEY = '@plantgenius_auth_token';
 const AUTH_USER_KEY = '@plantgenius_auth_user';
@@ -83,35 +88,52 @@ class AuthService {
 
   /**
    * Google Sign In
+   * Fixed: Removed React Hook usage, using imperative AuthSession API
    */
   async signInWithGoogle(): Promise<{ session: AuthSession | null; error: AuthError | null }> {
     try {
-      // Configure Google Sign In
-      const [request, response, promptAsync] = Google.useAuthRequest({
-        androidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID,
-        iosClientId: process.env.GOOGLE_IOS_CLIENT_ID,
-        webClientId: process.env.GOOGLE_WEB_CLIENT_ID,
+      // Get Google OAuth client ID based on platform
+      const clientId = Platform.select({
+        ios: config.googleIosClientId,
+        android: config.googleAndroidClientId,
+        default: config.googleWebClientId,
       });
 
-      if (!request) {
-        throw new Error('Failed to initialize Google Sign In');
+      if (!clientId) {
+        throw new Error('Google OAuth client ID not configured for this platform');
       }
 
-      const result = await promptAsync();
+      // Create redirect URI
+      const redirectUri = AuthSession.makeRedirectUri({
+        scheme: 'myapp',
+        path: 'redirect'
+      });
 
-      if (result?.type === 'success') {
-        const { authentication } = result;
-        if (!authentication?.accessToken) {
-          throw new Error('No access token received');
-        }
+      // Build Google OAuth URL
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${encodeURIComponent(clientId)}` +
+        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+        `&response_type=token` +
+        `&scope=${encodeURIComponent('profile email')}`;
 
+      // Start authentication flow
+      const result = await AuthSession.startAsync({
+        authUrl,
+        returnUrl: redirectUri
+      });
+
+      if (result.type === 'success' && result.params.access_token) {
         // Get user info from Google
         const userInfoResponse = await fetch(
           'https://www.googleapis.com/userinfo/v2/me',
           {
-            headers: { Authorization: `Bearer ${authentication.accessToken}` },
+            headers: { Authorization: `Bearer ${result.params.access_token}` },
           }
         );
+
+        if (!userInfoResponse.ok) {
+          throw new Error('Failed to fetch user info from Google');
+        }
 
         const userInfo = await userInfoResponse.json();
 
@@ -306,85 +328,99 @@ class AuthService {
 
   /**
    * Helper: Create or update Google user
+   * PRODUCTION FIX: Added error handling for backend API failures
    */
   private async createOrUpdateGoogleUser(googleUser: any): Promise<AuthUser> {
-    const profile = await mongoClient.getUserProfile(googleUser.id);
+    try {
+      const profile = await mongoClient.getUserProfile(googleUser.id);
 
-    if (profile) {
-      // Update existing profile
-      const updated = await mongoClient.updateUserProfile(googleUser.id, {
+      if (profile) {
+        // Update existing profile
+        const updated = await mongoClient.updateUserProfile(googleUser.id, {
+          email: googleUser.email,
+          fullName: googleUser.name,
+          avatarUrl: googleUser.picture,
+          updatedAt: new Date(),
+        });
+
+        return {
+          id: updated._id,
+          email: updated.email,
+          fullName: updated.fullName,
+          avatarUrl: updated.avatarUrl,
+          authProvider: 'google',
+        };
+      }
+
+      // Create new profile
+      const created = await mongoClient.createUserProfile({
         email: googleUser.email,
         fullName: googleUser.name,
         avatarUrl: googleUser.picture,
-        updatedAt: new Date(),
+        authProvider: 'google',
       });
 
       return {
-        id: updated._id,
-        email: updated.email,
-        fullName: updated.fullName,
-        avatarUrl: updated.avatarUrl,
+        id: created._id,
+        email: created.email,
+        fullName: created.fullName,
+        avatarUrl: created.avatarUrl,
         authProvider: 'google',
       };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Failed to create/update Google user', err, { email: googleUser.email });
+      throw new Error('Google Sign In failed. Please try email login or contact support.');
     }
-
-    // Create new profile
-    const created = await mongoClient.createUserProfile({
-      email: googleUser.email,
-      fullName: googleUser.name,
-      avatarUrl: googleUser.picture,
-      authProvider: 'google',
-    });
-
-    return {
-      id: created._id,
-      email: created.email,
-      fullName: created.fullName,
-      avatarUrl: created.avatarUrl,
-      authProvider: 'google',
-    };
   }
 
   /**
    * Helper: Create or update Apple user
+   * PRODUCTION FIX: Added error handling for backend API failures
    */
   private async createOrUpdateAppleUser(credential: AppleAuthentication.AppleAuthenticationCredential): Promise<AuthUser> {
-    const profile = await mongoClient.getUserProfile(credential.user);
+    try {
+      const profile = await mongoClient.getUserProfile(credential.user);
 
-    if (profile) {
-      // Update existing profile
-      const updated = await mongoClient.updateUserProfile(credential.user, {
-        updatedAt: new Date(),
+      if (profile) {
+        // Update existing profile
+        const updated = await mongoClient.updateUserProfile(credential.user, {
+          updatedAt: new Date(),
+        });
+
+        return {
+          id: updated._id,
+          email: updated.email,
+          fullName: updated.fullName,
+          avatarUrl: updated.avatarUrl,
+          authProvider: 'apple',
+        };
+      }
+
+      // Create new profile
+      const fullName = credential.fullName
+        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
+        : null;
+
+      const created = await mongoClient.createUserProfile({
+        email: credential.email || `${credential.user}@privaterelay.appleid.com`,
+        fullName,
+        avatarUrl: null,
+        authProvider: 'apple',
       });
 
       return {
-        id: updated._id,
-        email: updated.email,
-        fullName: updated.fullName,
-        avatarUrl: updated.avatarUrl,
+        id: created._id,
+        email: created.email,
+        fullName: created.fullName,
+        avatarUrl: created.avatarUrl,
         authProvider: 'apple',
       };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      logger.error('Failed to create/update Apple user', err, { userId: credential.user });
+      throw new Error('Apple Sign In failed. Please try email login or contact support.');
     }
-
-    // Create new profile
-    const fullName = credential.fullName
-      ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
-      : null;
-
-    const created = await mongoClient.createUserProfile({
-      email: credential.email || `${credential.user}@privaterelay.appleid.com`,
-      fullName,
-      avatarUrl: null,
-      authProvider: 'apple',
-    });
-
-    return {
-      id: created._id,
-      email: created.email,
-      fullName: created.fullName,
-      avatarUrl: created.avatarUrl,
-      authProvider: 'apple',
-    };
   }
 
   /**
@@ -403,6 +439,7 @@ class AuthService {
 
   /**
    * Helper: Generate JWT token (placeholder - should be backend)
+   * Fixed: Replaced Node.js Buffer with React Native compatible btoa()
    */
   private async generateToken(user: AuthUser): Promise<string> {
     // In production, the backend should generate and sign the JWT
@@ -414,7 +451,8 @@ class AuthService {
       exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
     };
 
-    return Buffer.from(JSON.stringify(payload)).toString('base64');
+    // Use btoa() which is available in React Native
+    return btoa(JSON.stringify(payload));
   }
 
   /**

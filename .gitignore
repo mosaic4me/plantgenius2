@@ -36,6 +36,49 @@ yarn-error.*
 .env.production
 .env.staging
 
+# Backend environment files
+backend/.env
+backend/.env.local
+backend/.env.development
+backend/.env.production
+backend/.env.staging
+
+# Credentials and secrets (SECURITY CRITICAL)
+API_KEY_QUEUE.json
+CREDENTIALS_VAULT.md
+**/secrets.json
+**/credentials.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.p8
+**/*.jks
+**/*.keystore
+.secrets/
+
+# Security scanning results
+.git-secrets/
+security-scan-results/
+vulnerability-reports/
+
+# Temporary credential files
+temp_credentials.txt
+.credentials
+api_keys.txt
+
 # typescript
 *.tsbuildinfo
 .vercel
+
+# Test screenshots and artifacts
+test-screenshots/
+playwright-report/
+test-results/
+
+# Logs (may contain sensitive data)
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*

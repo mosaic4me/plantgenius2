@@ -55,11 +55,13 @@ const getConfig = (): AppConfig => {
 
   return {
     // Pl@ntNet API
-    plantnetApiKey: extra.plantnetApiKey || '2b10ljY2KkrPghrnquDKbQ8V2',
+    // SECURITY: Removed hardcoded fallback - API key must be in environment
+    plantnetApiKey: extra.plantnetApiKey || '',
     plantnetApiUrl: extra.plantnetApiUrl || 'https://my-api.plantnet.org/v2/identify/all',
 
     // MongoDB Backend API
-    mongodbApiUrl: extra.mongodbApiUrl || 'http://localhost:3000/api',
+    // SECURITY: No fallback - backend URL must be explicitly configured
+    mongodbApiUrl: extra.mongodbApiUrl || '',
 
     // Google Sign In
     googleAndroidClientId: extra.googleAndroidClientId || '',
